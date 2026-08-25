@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE pkgmetadata SYSTEM "https://www.gentoo.org/dtd/metadata.dtd">
+<pkgmetadata>
+  <maintainer type="person">
+    <email>30157929+kris004@users.noreply.github.com</email>
+    <name>Kristopher Keller</name>
+  </maintainer>
+  <longdescription lang="en">
+    notm is a keyboard-first GTK mail client built around a local notmuch
+    database. It provides native message browsing and composition while
+    delegating synchronization and transport to user-configured commands.
+  </longdescription>
+  <upstream>
+    <remote-id type="github">kris004/notm</remote-id>
+  </upstream>
+</pkgmetadata>
