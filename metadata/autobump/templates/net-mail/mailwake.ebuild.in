@@ -30,7 +30,7 @@ src_compile() {
 }
 
 src_test() {
-	cargo_src_test --locked
+	TMPDIR="/tmp" cargo_src_test --locked
 }
 
 src_install() {
