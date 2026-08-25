@@ -1,0 +1,21 @@
+name: pkgcheck
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  schedule:
+    - cron: "17 11 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Run pkgcheck
+        uses: pkgcore/pkgcheck-action@8491e92faa1010d5c6947c114d23215e5a74684e # v1
