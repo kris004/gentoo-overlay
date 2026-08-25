@@ -110,7 +110,7 @@ for current_atom in "${packages[@]}"; do
 
       pkgdev manifest --config no -d "${DISTDIR}" "${package_dir}"
       pmaint --config no regen --dir "${HOME}/.cache/pkgcheck/repos" .
-      pkgcheck scan --exit=error,warning,style "${package_dir}"
+      pkgcheck scan --exit=error,warning,style,PythonCompatUpdate "${package_dir}"
 
       git add -- "${package_dir}" "${state_path}"
       git diff --cached --check

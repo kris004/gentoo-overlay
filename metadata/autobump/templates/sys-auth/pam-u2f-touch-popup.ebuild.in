@@ -3,7 +3,7 @@
 
 EAPI=8
 
-PYTHON_COMPAT=( python3_{11..14} )
+PYTHON_COMPAT=( python3_{11..15} )
 inherit python-any-r1 systemd toolchain-funcs
 
 DESCRIPTION="Desktop prompt while pam_u2f waits for a security-key touch"

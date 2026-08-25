@@ -42,8 +42,8 @@ Automated-release policy:
   locks from upstream. Packaging logic remains in reviewed local templates.
 - Reject draft or unsupported releases, unreachable tag commits, missing or
   failed required checks, tag/source version mismatches, Git dependencies,
-  unsafe archives, template collisions, Manifest failures, and `pkgcheck`
-  findings before committing.
+  unsafe archives, template collisions, Manifest failures, and configured
+  blocking `pkgcheck` findings before committing.
 - Automated commits may contain only the affected package directory and its
   state file. Never remove older ebuilds or change packaging templates
   automatically.

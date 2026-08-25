@@ -53,4 +53,4 @@ jobs:
         run: pmaint --config no regen --dir ~/.cache/pkgcheck/repos .
 
       - name: Scan repository
-        run: pkgcheck scan --exit=error,warning,style
+        run: pkgcheck scan --exit=error,warning,style,PythonCompatUpdate

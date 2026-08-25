@@ -51,7 +51,8 @@ release, it:
 4. verifies Cargo package versions, Rust requirements, and locked crates where
    applicable, while rejecting Git dependencies and non-crates.io registries;
 5. renders an ebuild pinned to the release commit, runs `pkgdev manifest`, and
-   rejects `pkgcheck` errors, warnings, or style findings; and
+   rejects `pkgcheck` errors, warnings, style findings, and selected maintenance
+   findings such as stale Python compatibility; and
 6. pushes one scoped bot commit for that package.
 
 A failed gate leaves the published overlay unchanged and opens or updates a
