@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import dataclasses
 import io
 import tarfile
@@ -10,15 +11,96 @@ from pathlib import Path
 
 from scripts.autobump import (
     AutobumpError,
+    GitHubClient,
     PackageConfig,
     PackageState,
     Release,
     SemVer,
     _cargo_crates,
+    _openpgp_signature_fingerprint,
     _safe_extract,
     eligible_releases,
+    load_config,
     render_template,
 )
+
+FINGERPRINT = "BE592562E6131A53F4BADE4A046928E9A919BAF9"
+OTHER_FINGERPRINT = "0123456789ABCDEF0123456789ABCDEF01234567"
+COMMIT = "a" * 40
+TAG_SHA = "b" * 40
+TAG = "v1.2.3"
+
+
+def openpgp_signature(
+    fingerprint: str = FINGERPRINT,
+    *,
+    issuer_is_hashed: bool = True,
+    issuer_key_id: str | None = None,
+) -> str:
+    issuer_fingerprint = bytes([22, 33, 4]) + bytes.fromhex(fingerprint)
+    key_id = issuer_key_id or fingerprint[-16:]
+    issuer_key = bytes([9, 16]) + bytes.fromhex(key_id)
+    hashed = issuer_fingerprint if issuer_is_hashed else b""
+    unhashed = issuer_key if issuer_is_hashed else issuer_fingerprint + issuer_key
+    body = (
+        bytes([4, 0, 1, 8])
+        + len(hashed).to_bytes(2)
+        + hashed
+        + len(unhashed).to_bytes(2)
+        + unhashed
+        + b"\x00\x00"
+    )
+    packet = bytes([0xC2, len(body)]) + body
+    encoded = base64.b64encode(packet).decode("ascii")
+    return "\n".join(
+        [
+            "-----BEGIN PGP SIGNATURE-----",
+            "",
+            *textwrap.wrap(encoded, 64),
+            "-----END PGP SIGNATURE-----",
+        ]
+    )
+
+
+def tag_responses(
+    *,
+    ref_type: str = "tag",
+    target_type: str = "commit",
+    verified: bool = True,
+    reason: str = "valid",
+    signature: str | None = None,
+    payload_commit: str = COMMIT,
+) -> dict[str, object]:
+    ref_sha = TAG_SHA if ref_type == "tag" else COMMIT
+    return {
+        f"/repos/owner/project/git/ref/tags/{TAG}": {
+            "ref": f"refs/tags/{TAG}",
+            "object": {"type": ref_type, "sha": ref_sha},
+        },
+        f"/repos/owner/project/git/tags/{TAG_SHA}": {
+            "sha": TAG_SHA,
+            "tag": TAG,
+            "object": {"type": target_type, "sha": COMMIT},
+            "verification": {
+                "verified": verified,
+                "reason": reason,
+                "payload": (
+                    f"object {payload_commit}\ntype commit\ntag {TAG}\n"
+                    "tagger Test <test@example.invalid> 1 +0000\n\nrelease"
+                ),
+                "signature": signature or openpgp_signature(),
+            },
+        },
+    }
+
+
+class FakeGitHubClient(GitHubClient):
+    def __init__(self, responses: dict[str, object]):
+        super().__init__()
+        self.responses = responses
+
+    def _get_json(self, path: str) -> object:
+        return self.responses[path]
 
 
 class SemVerTests(unittest.TestCase):
@@ -47,9 +129,105 @@ class SemVerTests(unittest.TestCase):
             "published_at": "2026-01-01T00:00:00Z",
             "prerelease": False,
             "draft": False,
+            "immutable": True,
         }
         with self.assertRaisesRegex(AutobumpError, "prerelease metadata"):
             Release.from_api(data)
+
+    def test_mutable_release_is_rejected(self) -> None:
+        data = {
+            "id": 1,
+            "tag_name": "v1.2.3",
+            "published_at": "2026-01-01T00:00:00Z",
+            "prerelease": False,
+            "draft": False,
+            "immutable": False,
+        }
+        with self.assertRaisesRegex(AutobumpError, "not immutable"):
+            Release.from_api(data)
+
+
+class OpenPGPTagTests(unittest.TestCase):
+    def test_hashed_issuer_fingerprint_is_extracted(self) -> None:
+        self.assertEqual(
+            _openpgp_signature_fingerprint(openpgp_signature()), FINGERPRINT
+        )
+
+    def test_unhashed_issuer_fingerprint_cannot_spoof_trust(self) -> None:
+        with self.assertRaisesRegex(AutobumpError, "hashed OpenPGP issuer"):
+            _openpgp_signature_fingerprint(openpgp_signature(issuer_is_hashed=False))
+
+    def test_issuer_key_id_must_match_hashed_fingerprint(self) -> None:
+        signature = openpgp_signature(issuer_key_id=OTHER_FINGERPRINT[-16:])
+        with self.assertRaisesRegex(AutobumpError, "issuer key ID does not match"):
+            _openpgp_signature_fingerprint(signature)
+
+    def test_verified_direct_signed_tag_is_resolved(self) -> None:
+        client = FakeGitHubClient(tag_responses())
+        self.assertEqual(
+            client.resolve_tag("owner/project", TAG, {FINGERPRINT}), COMMIT
+        )
+
+    def test_lightweight_tag_is_rejected(self) -> None:
+        client = FakeGitHubClient(tag_responses(ref_type="commit"))
+        with self.assertRaisesRegex(AutobumpError, "lightweight tag"):
+            client.resolve_tag("owner/project", TAG, {FINGERPRINT})
+
+    def test_indirect_annotated_tag_is_rejected(self) -> None:
+        client = FakeGitHubClient(tag_responses(target_type="tag"))
+        with self.assertRaisesRegex(AutobumpError, "directly target a commit"):
+            client.resolve_tag("owner/project", TAG, {FINGERPRINT})
+
+    def test_github_verification_must_be_valid(self) -> None:
+        client = FakeGitHubClient(tag_responses(verified=False, reason="unknown_key"))
+        with self.assertRaisesRegex(AutobumpError, "not valid"):
+            client.resolve_tag("owner/project", TAG, {FINGERPRINT})
+
+    def test_signer_must_match_package_allowlist(self) -> None:
+        client = FakeGitHubClient(tag_responses())
+        with self.assertRaisesRegex(AutobumpError, "untrusted OpenPGP signer"):
+            client.resolve_tag("owner/project", TAG, {OTHER_FINGERPRINT})
+
+    def test_signed_payload_must_match_tag_target(self) -> None:
+        client = FakeGitHubClient(tag_responses(payload_commit="c" * 40))
+        with self.assertRaisesRegex(AutobumpError, "does not bind"):
+            client.resolve_tag("owner/project", TAG, {FINGERPRINT})
+
+
+class ConfigTests(unittest.TestCase):
+    def test_config_requires_full_uppercase_fingerprint(self) -> None:
+        with tempfile.TemporaryDirectory() as value:
+            root = Path(value)
+            (root / "template").write_text("@COMMIT@\n", encoding="utf-8")
+            config = root / "packages.toml"
+            config.write_text(
+                textwrap.dedent(
+                    f"""
+                    schema = 2
+                    [[package]]
+                    atom = "app-misc/test"
+                    repository = "owner/project"
+                    trusted_openpgp_fingerprints = ["{FINGERPRINT}"]
+                    template = "template"
+                    kind = "generic"
+                    include_prereleases = false
+                    minimum_version = "1.0.0"
+                    required_checks = ["CI"]
+                    """
+                ),
+                encoding="utf-8",
+            )
+            package = load_config(root, config)[0]
+            self.assertEqual(package.trusted_openpgp_fingerprints, {FINGERPRINT})
+
+            config.write_text(
+                config.read_text(encoding="utf-8").replace(
+                    FINGERPRINT, FINGERPRINT.lower()
+                ),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(AutobumpError, "invalid trusted"):
+                load_config(root, config)
 
 
 class CargoTests(unittest.TestCase):
@@ -287,6 +465,7 @@ class ReleaseSelectionTests(unittest.TestCase):
             "published_at": f"2026-01-{release_id:02d}T00:00:00Z",
             "prerelease": prerelease,
             "draft": False,
+            "immutable": True,
         }
 
     def test_only_newer_supported_releases_are_selected(self) -> None:
@@ -311,6 +490,18 @@ class ReleaseSelectionTests(unittest.TestCase):
             None,
         )
         self.assertEqual([item.tag for item in selected], ["v1.1.0"])
+
+    def test_seeded_mutable_release_is_grandfathered(self) -> None:
+        state = PackageState(1, "v1.0.0", "2026-01-01T00:00:00Z", "a" * 40, "1.0.0")
+        existing = self.release(1, "v1.0.0")
+        existing["immutable"] = False
+        self.assertEqual(eligible_releases(self.package, [existing], state), [])
+
+    def test_new_mutable_release_fails_closed(self) -> None:
+        candidate = self.release(2, "v1.0.1")
+        candidate["immutable"] = False
+        with self.assertRaisesRegex(AutobumpError, "not immutable"):
+            eligible_releases(self.package, [candidate], None)
 
 
 class ArchiveTests(unittest.TestCase):

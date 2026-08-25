@@ -45,27 +45,32 @@ An hourly GitHub Actions job polls the registered projects. For each new
 release, it:
 
 1. accepts only the configured stable or prerelease channel and semantic tag;
-2. resolves the tag to its exact commit and verifies that commit is reachable
-   from the upstream default branch;
-3. requires the package's named upstream CI checks to have succeeded;
-4. verifies Cargo package versions, Rust requirements, and locked crates where
+2. requires GitHub to report the published release as immutable;
+3. requires a direct annotated OpenPGP tag whose GitHub-verified signature
+   binds the tag to its exact commit and whose full signer fingerprint is
+   pinned for that package, then verifies the commit is reachable from the
+   upstream default branch;
+4. requires the package's named upstream CI checks to have succeeded;
+5. verifies Cargo package versions, Rust requirements, and locked crates where
    applicable, while rejecting Git dependencies and non-crates.io registries;
-5. renders an ebuild pinned to the release commit, runs `pkgdev manifest`, and
+6. renders an ebuild pinned to the release commit, runs `pkgdev manifest`, and
    rejects `pkgcheck` errors, warnings, style findings, and selected maintenance
    findings such as stale Python compatibility; and
-6. pushes one scoped bot commit for that package.
+7. pushes one scoped bot commit for that package.
 
 A failed gate leaves the published overlay unchanged and opens or updates a
 package-specific issue with a link to the failed run. The updater uses the
-repository's short-lived `GITHUB_TOKEN` only for overlay issues and pushes;
-public upstream discovery is read-only and unauthenticated. Source
+repository's short-lived, repository-scoped `GITHUB_TOKEN` for fixed read-only
+GitHub API discovery calls, overlay issues, and pushes. It never sends the token
+with source-archive downloads or exposes it to Manifest and QA tools. Source
 repositories do not need a cross-repository token or release secret.
 
 The registry and ebuild templates live under `metadata/autobump/`. Ordinary
 source and version releases are automatic. A real change to a project's system
 dependencies, install paths, service files, or other packaging contract still
 requires the corresponding reviewed template change rather than guessing from
-source code.
+source code. A signing-key rotation likewise requires a reviewed registry edit;
+the old and new full fingerprints can overlap during an intentional transition.
 
 To suppress a bad release, add its exact tag to that package's `blocked_tags`
 array in `metadata/autobump/packages.toml` before reverting the generated
@@ -73,8 +78,8 @@ package commit. The next run skips the blocked tag instead of recreating the ebu
 
 ## Repository policy
 
-- Packages track immutable versioned release commits; live ebuilds are
-  exceptional.
+- Packages track immutable releases through signed, maintainer-pinned tags and
+  exact versioned source commits; live ebuilds are exceptional.
 - Packages begin with testing keywords such as `~amd64`.
 - Manifests are generated with Portage tooling and are never hand-edited.
 - Repository QA uses `pkgcheck scan` locally and in GitHub Actions.

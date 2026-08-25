@@ -1,8 +1,11 @@
-schema = 1
+schema = 2
 
 [[package]]
 atom = "mail-client/notm"
 repository = "kris004/notm"
+trusted_openpgp_fingerprints = [
+  "BE592562E6131A53F4BADE4A046928E9A919BAF9",
+]
 template = "metadata/autobump/templates/mail-client/notm.ebuild.in"
 kind = "cargo"
 rust_min_version = "1.92.0"
@@ -15,6 +18,9 @@ required_checks = [
 [[package]]
 atom = "net-mail/mailwake"
 repository = "kris004/mailwake"
+trusted_openpgp_fingerprints = [
+  "BE592562E6131A53F4BADE4A046928E9A919BAF9",
+]
 template = "metadata/autobump/templates/net-mail/mailwake.ebuild.in"
 kind = "cargo"
 include_prereleases = true
@@ -27,6 +33,9 @@ required_checks = [
 [[package]]
 atom = "gui-apps/mural"
 repository = "kris004/mural"
+trusted_openpgp_fingerprints = [
+  "BE592562E6131A53F4BADE4A046928E9A919BAF9",
+]
 template = "metadata/autobump/templates/gui-apps/mural.ebuild.in"
 metadata_template = "metadata/autobump/templates/gui-apps/mural.metadata.xml"
 kind = "cargo"
@@ -42,6 +51,9 @@ required_checks = [
 [[package]]
 atom = "sys-auth/pam-u2f-touch-popup"
 repository = "kris004/pam-u2f-touch-popup"
+trusted_openpgp_fingerprints = [
+  "BE592562E6131A53F4BADE4A046928E9A919BAF9",
+]
 template = "metadata/autobump/templates/sys-auth/pam-u2f-touch-popup.ebuild.in"
 metadata_template = "metadata/autobump/templates/sys-auth/pam-u2f-touch-popup.metadata.xml"
 kind = "generic"

@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import argparse
+import base64
+import binascii
 import dataclasses
 import datetime as dt
 import json
@@ -41,6 +43,9 @@ CRATES_IO_SOURCES = {
     "registry+https://github.com/rust-lang/crates.io-index",
     "registry+sparse+https://index.crates.io/",
 }
+OPENPGP_V4_FINGERPRINT_RE = re.compile(r"[0-9A-F]{40}")
+PGP_SIGNATURE_BEGIN = "-----BEGIN PGP SIGNATURE-----"
+PGP_SIGNATURE_END = "-----END PGP SIGNATURE-----"
 
 
 @dataclasses.dataclass(frozen=True, order=False)
@@ -111,6 +116,7 @@ class PackageConfig:
     include_prereleases: bool
     required_checks: tuple[str, ...]
     minimum_version: SemVer
+    trusted_openpgp_fingerprints: frozenset[str] = frozenset()
     blocked_tags: frozenset[str] = frozenset()
     metadata_template: Path | None = None
     rust_min_version: str | None = None
@@ -145,6 +151,8 @@ class Release:
         if data.get("draft"):
             raise AutobumpError("draft releases are not eligible")
         tag = str(data["tag_name"])
+        if data.get("immutable") is not True:
+            raise AutobumpError(f"release {tag!r} is not immutable")
         published_at = data.get("published_at")
         if not isinstance(published_at, str):
             raise AutobumpError(f"release {tag!r} has no publication timestamp")
@@ -218,6 +226,174 @@ class PackageState:
         return json.dumps(data, indent=2, sort_keys=True) + "\n"
 
 
+def _crc24(data: bytes) -> int:
+    crc = 0xB704CE
+    for value in data:
+        crc ^= value << 16
+        for _ in range(8):
+            crc <<= 1
+            if crc & 0x1000000:
+                crc ^= 0x1864CFB
+    return crc & 0xFFFFFF
+
+
+def _decode_openpgp_signature(armored: str) -> bytes:
+    lines = armored.strip().splitlines()
+    if len(lines) < 4 or lines[0] != PGP_SIGNATURE_BEGIN:
+        raise AutobumpError("tag signature is not an ASCII-armored OpenPGP signature")
+    if lines[-1] != PGP_SIGNATURE_END:
+        raise AutobumpError("tag signature has an invalid OpenPGP armor footer")
+    armor = lines[1:-1]
+    try:
+        separator = armor.index("")
+    except ValueError as exc:
+        raise AutobumpError("tag signature has invalid OpenPGP armor headers") from exc
+    if any(":" not in header for header in armor[:separator]):
+        raise AutobumpError("tag signature has invalid OpenPGP armor headers")
+    encoded = armor[separator + 1 :]
+    checksum: bytes | None = None
+    if encoded and encoded[-1].startswith("="):
+        try:
+            checksum = base64.b64decode(encoded.pop()[1:], validate=True)
+        except (binascii.Error, ValueError) as exc:
+            raise AutobumpError("tag signature has invalid OpenPGP armor CRC") from exc
+        if len(checksum) != 3:
+            raise AutobumpError("tag signature has invalid OpenPGP armor CRC")
+    if not encoded or any(not line or line.startswith("=") for line in encoded):
+        raise AutobumpError("tag signature has invalid OpenPGP armor body")
+    try:
+        packet_data = base64.b64decode("".join(encoded), validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise AutobumpError("tag signature has invalid OpenPGP armor body") from exc
+    if checksum is not None and int.from_bytes(checksum) != _crc24(packet_data):
+        raise AutobumpError("tag signature has an invalid OpenPGP armor CRC")
+    return packet_data
+
+
+def _read_openpgp_new_length(data: bytes, offset: int) -> tuple[int, int]:
+    if offset >= len(data):
+        raise AutobumpError("tag signature has a truncated OpenPGP packet length")
+    first = data[offset]
+    offset += 1
+    if first < 192:
+        return first, offset
+    if first <= 223:
+        if offset >= len(data):
+            raise AutobumpError("tag signature has a truncated OpenPGP packet length")
+        return ((first - 192) << 8) + data[offset] + 192, offset + 1
+    if first == 255:
+        end = offset + 4
+        if end > len(data):
+            raise AutobumpError("tag signature has a truncated OpenPGP packet length")
+        return int.from_bytes(data[offset:end]), end
+    raise AutobumpError("partial OpenPGP packet lengths are not supported")
+
+
+def _openpgp_packets(data: bytes) -> list[tuple[int, bytes]]:
+    packets: list[tuple[int, bytes]] = []
+    offset = 0
+    while offset < len(data):
+        header = data[offset]
+        offset += 1
+        if header & 0x80 == 0:
+            raise AutobumpError("tag signature has an invalid OpenPGP packet header")
+        if header & 0x40:
+            tag = header & 0x3F
+            length, offset = _read_openpgp_new_length(data, offset)
+        else:
+            tag = (header >> 2) & 0x0F
+            length_type = header & 0x03
+            length_octets = (1, 2, 4, 0)[length_type]
+            if length_octets == 0:
+                raise AutobumpError(
+                    "indeterminate OpenPGP packet lengths are not supported"
+                )
+            end = offset + length_octets
+            if end > len(data):
+                raise AutobumpError(
+                    "tag signature has a truncated OpenPGP packet length"
+                )
+            length = int.from_bytes(data[offset:end])
+            offset = end
+        end = offset + length
+        if end > len(data):
+            raise AutobumpError("tag signature has a truncated OpenPGP packet")
+        packets.append((tag, data[offset:end]))
+        offset = end
+    return packets
+
+
+def _openpgp_subpackets(data: bytes) -> list[tuple[int, bytes]]:
+    subpackets: list[tuple[int, bytes]] = []
+    offset = 0
+    while offset < len(data):
+        length, body_offset = _read_openpgp_new_length(data, offset)
+        if length < 1:
+            raise AutobumpError("tag signature has an empty OpenPGP subpacket")
+        end = body_offset + length
+        if end > len(data):
+            raise AutobumpError("tag signature has a truncated OpenPGP subpacket")
+        subpacket = data[body_offset:end]
+        subpackets.append((subpacket[0] & 0x7F, subpacket[1:]))
+        offset = end
+    return subpackets
+
+
+def _openpgp_signature_fingerprint(armored: str) -> str:
+    packets = _openpgp_packets(_decode_openpgp_signature(armored))
+    if len(packets) != 1 or packets[0][0] != 2:
+        raise AutobumpError("tag signature must contain exactly one OpenPGP signature")
+    body = packets[0][1]
+    if len(body) < 10 or body[0] != 4:
+        raise AutobumpError("only OpenPGP version 4 tag signatures are supported")
+    hashed_length = int.from_bytes(body[4:6])
+    hashed_end = 6 + hashed_length
+    if hashed_end + 2 > len(body):
+        raise AutobumpError("tag signature has truncated hashed OpenPGP subpackets")
+    unhashed_length = int.from_bytes(body[hashed_end : hashed_end + 2])
+    unhashed_end = hashed_end + 2 + unhashed_length
+    if unhashed_end + 2 > len(body):
+        raise AutobumpError("tag signature has truncated unhashed OpenPGP subpackets")
+
+    fingerprints: set[str] = set()
+    for subpacket_type, value in _openpgp_subpackets(body[6:hashed_end]):
+        if subpacket_type != 33:
+            continue
+        if len(value) != 21 or value[0] != 4:
+            raise AutobumpError("tag signature has an unsupported issuer fingerprint")
+        fingerprints.add(value[1:].hex().upper())
+    if len(fingerprints) != 1:
+        raise AutobumpError(
+            "tag signature must bind exactly one hashed OpenPGP issuer fingerprint"
+        )
+    fingerprint = next(iter(fingerprints))
+
+    issuer_key_ids: set[str] = set()
+    for subpacket_type, value in _openpgp_subpackets(
+        body[hashed_end + 2 : unhashed_end]
+    ):
+        if subpacket_type != 16:
+            continue
+        if len(value) != 8:
+            raise AutobumpError("tag signature has an invalid OpenPGP issuer key ID")
+        issuer_key_ids.add(value.hex().upper())
+    if issuer_key_ids != {fingerprint[-16:]}:
+        raise AutobumpError(
+            "tag signature issuer key ID does not match its hashed fingerprint"
+        )
+    return fingerprint
+
+
+def _verify_tag_payload(payload: str, *, tag: str, commit: str) -> None:
+    header, separator, _message = payload.partition("\n\n")
+    expected = [f"object {commit}", "type commit", f"tag {tag}"]
+    lines = header.splitlines()
+    if not separator or len(lines) < 4 or lines[:3] != expected:
+        raise AutobumpError(f"signed tag payload does not bind {tag} to {commit}")
+    if not lines[3].startswith("tagger "):
+        raise AutobumpError(f"signed tag payload has no tagger for {tag}")
+
+
 class GitHubClient:
     def __init__(
         self, token: str | None = None, api_base: str = "https://api.github.com"
@@ -239,7 +415,11 @@ class GitHubClient:
         return headers
 
     def _get_json(self, path: str) -> Any:
-        url = path if path.startswith("http") else f"{self.api_base}{path}"
+        if not path.startswith("/"):
+            raise AutobumpError(
+                "GitHub API paths must be relative to the configured API"
+            )
+        url = f"{self.api_base}{path}"
         request = urllib.request.Request(url, headers=self._headers())
         try:
             with urllib.request.urlopen(request, timeout=60) as response:
@@ -267,25 +447,71 @@ class GitHubClient:
                 return releases
         raise AutobumpError(f"more than 10,000 releases found for {repository}")
 
-    def resolve_tag(self, repository: str, tag: str) -> str:
+    def resolve_tag(
+        self,
+        repository: str,
+        tag: str,
+        trusted_openpgp_fingerprints: Iterable[str],
+    ) -> str:
         encoded = urllib.parse.quote(tag, safe="")
         ref = self._get_json(f"/repos/{repository}/git/ref/tags/{encoded}")
+        if not isinstance(ref, dict) or ref.get("ref") != f"refs/tags/{tag}":
+            raise AutobumpError(f"invalid Git tag ref for {repository}@{tag}")
         obj = ref.get("object", {})
-        for _ in range(8):
-            obj_type = obj.get("type")
-            sha = obj.get("sha")
-            if not isinstance(sha, str) or not re.fullmatch(r"[0-9a-f]{40}", sha):
-                raise AutobumpError(f"invalid Git tag object for {repository}@{tag}")
-            if obj_type == "commit":
-                return sha
-            if obj_type != "tag":
-                raise AutobumpError(
-                    f"unsupported Git object type {obj_type!r} for {repository}@{tag}"
-                )
-            obj = self._get_json(f"/repos/{repository}/git/tags/{sha}").get(
-                "object", {}
+        if not isinstance(obj, dict):
+            raise AutobumpError(f"invalid Git tag object for {repository}@{tag}")
+        obj_type = obj.get("type")
+        tag_sha = obj.get("sha")
+        if not isinstance(tag_sha, str) or not re.fullmatch(r"[0-9a-f]{40}", tag_sha):
+            raise AutobumpError(f"invalid Git tag object for {repository}@{tag}")
+        if obj_type == "commit":
+            raise AutobumpError(
+                f"lightweight tag {repository}@{tag} is not a signed annotated tag"
             )
-        raise AutobumpError(f"excessive annotated-tag depth for {repository}@{tag}")
+        if obj_type != "tag":
+            raise AutobumpError(
+                f"unsupported Git object type {obj_type!r} for {repository}@{tag}"
+            )
+
+        tag_object = self._get_json(f"/repos/{repository}/git/tags/{tag_sha}")
+        if not isinstance(tag_object, dict) or tag_object.get("sha") != tag_sha:
+            raise AutobumpError(f"invalid annotated tag object for {repository}@{tag}")
+        if tag_object.get("tag") != tag:
+            raise AutobumpError(f"annotated tag name mismatch for {repository}@{tag}")
+        target = tag_object.get("object", {})
+        if not isinstance(target, dict) or target.get("type") != "commit":
+            raise AutobumpError(
+                f"annotated tag {repository}@{tag} must directly target a commit"
+            )
+        commit = target.get("sha")
+        if not isinstance(commit, str) or not re.fullmatch(r"[0-9a-f]{40}", commit):
+            raise AutobumpError(f"invalid tag target for {repository}@{tag}")
+
+        verification = tag_object.get("verification", {})
+        if not isinstance(verification, dict):
+            raise AutobumpError(f"missing tag verification for {repository}@{tag}")
+        if (
+            verification.get("verified") is not True
+            or verification.get("reason") != "valid"
+        ):
+            raise AutobumpError(
+                f"OpenPGP tag signature is not valid for {repository}@{tag}: "
+                f"{verification.get('reason', 'missing verification')}"
+            )
+        payload = verification.get("payload")
+        signature = verification.get("signature")
+        if not isinstance(payload, str) or not isinstance(signature, str):
+            raise AutobumpError(
+                f"missing OpenPGP verification material for {repository}@{tag}"
+            )
+        _verify_tag_payload(payload, tag=tag, commit=commit)
+        fingerprint = _openpgp_signature_fingerprint(signature)
+        trusted = frozenset(trusted_openpgp_fingerprints)
+        if fingerprint not in trusted:
+            raise AutobumpError(
+                f"untrusted OpenPGP signer {fingerprint} for {repository}@{tag}"
+            )
+        return commit
 
     def verify_default_branch_reachability(self, repository: str, commit: str) -> None:
         repo = self._get_json(f"/repos/{repository}")
@@ -380,7 +606,7 @@ def _repo_path(root: Path, value: str) -> Path:
 
 def load_config(root: Path, config_path: Path) -> list[PackageConfig]:
     data = tomllib.loads(config_path.read_text(encoding="utf-8"))
-    if data.get("schema") != 1:
+    if data.get("schema") != 2:
         raise AutobumpError(f"unsupported config schema in {config_path}")
     rows = data.get("package")
     if not isinstance(rows, list) or not rows:
@@ -407,6 +633,23 @@ def load_config(root: Path, config_path: Path) -> list[PackageConfig]:
             raise AutobumpError(f"{atom} must define at least one required check")
         if len(set(checks)) != len(checks):
             raise AutobumpError(f"{atom} defines duplicate required checks")
+        fingerprint_values = row.get("trusted_openpgp_fingerprints")
+        if not isinstance(fingerprint_values, list) or not fingerprint_values:
+            raise AutobumpError(
+                f"{atom} must define at least one trusted OpenPGP fingerprint"
+            )
+        fingerprints: list[str] = []
+        for value in fingerprint_values:
+            if (
+                not isinstance(value, str)
+                or OPENPGP_V4_FINGERPRINT_RE.fullmatch(value) is None
+            ):
+                raise AutobumpError(
+                    f"invalid trusted OpenPGP fingerprint {value!r} for {atom}"
+                )
+            fingerprints.append(value)
+        if len(set(fingerprints)) != len(fingerprints):
+            raise AutobumpError(f"{atom} defines duplicate OpenPGP fingerprints")
         template = _repo_path(root, str(row["template"]))
         metadata_value = row.get("metadata_template")
         metadata = _repo_path(root, str(metadata_value)) if metadata_value else None
@@ -418,6 +661,7 @@ def load_config(root: Path, config_path: Path) -> list[PackageConfig]:
             include_prereleases=bool(row.get("include_prereleases", False)),
             required_checks=checks,
             minimum_version=SemVer.parse(str(row["minimum_version"])),
+            trusted_openpgp_fingerprints=frozenset(fingerprints),
             blocked_tags=frozenset(str(x) for x in row.get("blocked_tags", [])),
             metadata_template=metadata,
             rust_min_version=(
@@ -592,16 +836,19 @@ def eligible_releases(
     for data in api_releases:
         if data.get("draft"):
             continue
-        if str(data.get("tag_name")) in package.blocked_tags:
+        tag = data.get("tag_name")
+        if not isinstance(tag, str):
+            raise AutobumpError("release has no tag name")
+        if tag in package.blocked_tags:
             continue
         if data.get("prerelease") and not package.include_prereleases:
             continue
-        release = Release.from_api(data)
-        if release.version < package.minimum_version:
+        candidate_version = SemVer.parse(tag)
+        if candidate_version < package.minimum_version:
             continue
-        if current is not None and release.version <= current:
+        if current is not None and candidate_version <= current:
             continue
-        releases.append(release)
+        releases.append(Release.from_api(data))
     releases.sort(key=lambda item: item.version.sort_key)
     return releases
 
@@ -653,7 +900,11 @@ def update_package(
     with tempfile.TemporaryDirectory(prefix="gentoo-autobump-") as temp_value:
         temp = Path(temp_value)
         for release in releases:
-            commit = client.resolve_tag(package.repository, release.tag)
+            commit = client.resolve_tag(
+                package.repository,
+                release.tag,
+                package.trusted_openpgp_fingerprints,
+            )
             client.verify_default_branch_reachability(package.repository, commit)
             client.verify_checks(package.repository, commit, package.required_checks)
             archive = temp / f"{release.release_id}.tar.gz"
@@ -794,7 +1045,7 @@ def main(argv: list[str] | None = None) -> int:
         except KeyError as exc:
             raise AutobumpError(f"unknown package {args.package!r}") from exc
         client = GitHubClient(
-            token=os.environ.get("AUTOBUMP_GITHUB_TOKEN"),
+            token=os.environ.pop("AUTOBUMP_GITHUB_TOKEN", None),
             api_base=args.api_base,
         )
         result = update_package(

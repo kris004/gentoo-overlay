@@ -94,7 +94,8 @@ package_list="$(python3 scripts/autobump.py list)"
 mapfile -t packages <<<"${package_list}"
 for current_atom in "${packages[@]}"; do
   result_file="${RUNNER_TEMP_VALUE}/${current_atom//\//__}.json"
-  python3 scripts/autobump.py update \
+  AUTOBUMP_GITHUB_TOKEN="${GITHUB_TOKEN_VALUE}" \
+    python3 scripts/autobump.py update \
     --package "${current_atom}" \
     --result "${result_file}"
 

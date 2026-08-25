@@ -37,19 +37,29 @@ Automated-release policy:
 - A published upstream GitHub Release is the normal trigger for a new ebuild.
   Ordinary version releases must not require a manual overlay bump.
 - Keep each package's release channel, minimum version, exact required checks,
-  and optional `blocked_tags` in `metadata/autobump/packages.toml`.
+  trusted full OpenPGP signer fingerprints, and optional `blocked_tags` in
+  `metadata/autobump/packages.toml`.
 - The updater may derive only version, commit, Rust minimum, and crates.io crate
   locks from upstream. Packaging logic remains in reviewed local templates.
-- Reject draft or unsupported releases, unreachable tag commits, missing or
-  failed required checks, tag/source version mismatches, Git dependencies,
-  unsafe archives, template collisions, Manifest failures, and configured
+- Reject draft, mutable, or unsupported releases; lightweight, indirect,
+  invalidly signed, or untrusted-signer tags; unreachable tag commits; missing
+  or failed required checks; tag/source version mismatches; Git dependencies;
+  unsafe archives; template collisions; Manifest failures; and configured
   blocking `pkgcheck` findings before committing.
+- Apply current trust gates to every candidate newer than stored package state.
+  Historical seeded releases need not be republished solely to retrofit a new
+  gate, but never seed a future unsigned or mutable release.
+- Treat signer rotation as an explicit reviewed registry change. Overlap old
+  and new full fingerprints only for an intentional transition, then remove a
+  retired signer after outstanding releases are consumed.
 - Automated commits may contain only the affected package directory and its
   state file. Never remove older ebuilds or change packaging templates
   automatically.
-- Keep the write token out of upstream discovery, Manifest, and QA subprocess
-  environments. Dependency tooling and GitHub Actions must remain version-pinned;
-  Python CI requirements must remain hash-locked.
+- Expose the short-lived overlay job token only to fixed read-only GitHub API
+  discovery calls for rate-limit headroom and to explicit overlay issue/push
+  operations. Never send it with source downloads or expose it to Manifest or QA
+  subprocess environments. Dependency tooling and GitHub Actions must remain
+  version-pinned; Python CI requirements must remain hash-locked.
 - On failure, retain the previously published ebuild and report one reusable
   package-specific issue. To roll back a bad generated release, block its exact
   tag first, then revert the generated commit.
