@@ -6,6 +6,13 @@ Gentoo ebuilds for versioned releases of selected public projects maintained at
 This repository contains build recipes, not prebuilt binaries. Packages are
 built locally by Portage from immutable upstream release sources.
 
+## Packages
+
+| Package | Upstream release | Keyword |
+| --- | --- | --- |
+| `mail-client/notm` | `v0.1.0` | `~amd64` |
+| `net-mail/mailwake` | `v0.1.0-beta.2` | `~amd64` |
+
 ## Install
 
 Install `app-eselect/eselect-repository`, then add and synchronize the overlay:
@@ -29,7 +36,7 @@ emerge --ask category/package::kris004
 
 - Packages track immutable versioned releases; live ebuilds are exceptional.
 - Packages begin with testing keywords such as `~amd64`.
-- Manifests are generated with `pkgdev manifest` and are never hand-edited.
+- Manifests are generated with Portage tooling and are never hand-edited.
 - Repository QA uses `pkgcheck scan` locally and in GitHub Actions.
 - The overlay inherits eclasses, categories, and licenses from `::gentoo`.
 
