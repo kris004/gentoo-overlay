@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE pkgmetadata SYSTEM "https://www.gentoo.org/dtd/metadata.dtd">
+<pkgmetadata>
+  <maintainer type="person">
+    <email>30157929+kris004@users.noreply.github.com</email>
+    <name>Kristopher Keller</name>
+  </maintainer>
+  <longdescription lang="en">
+    Mural is a GPU-accelerated, scriptable wallpaper daemon for Wayland. It
+    provides a persistent daemon, a command-line controller, and configurable
+    transitions, with Sway as its primary tested compositor.
+  </longdescription>
+  <use>
+    <flag name="vips">Install vipsthumbnail for faster image preparation.</flag>
+  </use>
+  <upstream>
+    <remote-id type="github">kris004/mural</remote-id>
+  </upstream>
+</pkgmetadata>

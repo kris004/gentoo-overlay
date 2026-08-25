@@ -1,23 +1,27 @@
-name: validate
+name: autobump ebuilds
 
 on:
-  pull_request:
-  push:
-    branches:
-      - main
   schedule:
-    - cron: "17 11 * * 1"
+    - cron: "17 * * * *"
+  workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
+  issues: write
+
+concurrency:
+  group: gentoo-overlay-autobump
+  cancel-in-progress: false
 
 jobs:
-  validate:
+  update:
+    if: github.repository == 'kris004/gentoo-overlay' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     steps:
       - name: Check out repository
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803  # v6
         with:
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Set up Python
@@ -41,7 +45,7 @@ jobs:
           --require-hashes
           --requirement metadata/autobump/requirements.txt
 
-      - name: Test automation
+      - name: Test updater
         run: |
           python -m unittest discover -s scripts/tests -v
           shellcheck scripts/run-autobump.sh
@@ -49,8 +53,7 @@ jobs:
       - name: Synchronize Gentoo repository
         run: pmaint --config no sync gentoo
 
-      - name: Regenerate repository cache
-        run: pmaint --config no regen --dir ~/.cache/pkgcheck/repos .
-
-      - name: Scan repository
-        run: pkgcheck scan --exit=error,warning,style
+      - name: Generate, validate, and publish updates
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: scripts/run-autobump.sh

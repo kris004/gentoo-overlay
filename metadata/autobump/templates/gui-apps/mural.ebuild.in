@@ -1,0 +1,68 @@
+# Copyright 2026 Kristopher Keller
+# Distributed under the terms of the GNU General Public License v2
+
+EAPI=8
+
+@CRATES@
+
+RUST_MIN_VER="@RUST_MIN_VER@"
+inherit cargo systemd
+
+DESCRIPTION="GPU-accelerated scriptable Wayland wallpaper daemon"
+HOMEPAGE="https://github.com/kris004/mural"
+COMMIT="@COMMIT@"
+SRC_URI="
+	https://github.com/kris004/mural/archive/${COMMIT}.tar.gz -> ${P}.tar.gz
+	${CARGO_CRATE_URIS}
+"
+S="${WORKDIR}/${PN}-${COMMIT}"
+
+LICENSE="
+	|| ( Apache-2.0 MIT )
+	0BSD Apache-2.0 Apache-2.0-with-LLVM-exceptions
+	BSD ISC MIT Unicode-3.0 Unlicense ZLIB
+"
+SLOT="0"
+KEYWORDS="~amd64"
+IUSE="vips"
+
+DEPEND="
+	dev-libs/wayland
+	media-libs/libglvnd
+	x11-libs/libxkbcommon
+"
+RDEPEND="
+	${DEPEND}
+	vips? ( media-libs/vips )
+"
+BDEPEND="virtual/pkgconfig"
+
+src_compile() {
+	cargo_src_compile --locked --workspace
+}
+
+src_test() {
+	cargo_src_test --locked --workspace --all-targets
+}
+
+src_install() {
+	emake \
+		CARGO=true \
+		CARGO_FLAGS=--frozen \
+		CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-target}" \
+		DESTDIR="${D}" \
+		PREFIX="${EPREFIX}/usr" \
+		BINDIR="${EPREFIX}/usr/bin" \
+		MANDIR="${EPREFIX}/usr/share/man" \
+		DOCDIR="${EPREFIX}/usr/share/doc/${PF}" \
+		SYSTEMD_USER_DIR="$(systemd_get_userunitdir)" \
+		install
+}
+
+pkg_postinst() {
+	einfo "Copy the example config into ~/.config/mural/config.toml before use."
+	einfo "Enable the daemon with: systemctl --user enable --now murald.service"
+	if ! use vips; then
+		einfo "Enable USE=vips to install vipsthumbnail for faster image preparation."
+	fi
+}

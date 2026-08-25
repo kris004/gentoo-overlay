@@ -1,5 +1,7 @@
 *.log
+*.py[cod]
 *.swp
+__pycache__/
 .*.kate-swp
 *~
 ,*

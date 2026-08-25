@@ -12,8 +12,10 @@ Public-source rules:
   external users.
 - Preserve upstream licenses, notices, and attribution.
 - Preserve unrelated dirty work and stage exact paths.
-- Do not change visibility, push, publish, or create a release without explicit
-  authorization.
+- Human-initiated visibility changes, pushes, publication, and releases require
+  explicit authorization. The committed `.github/workflows/autobump.yml` is a
+  durable exception authorized to push only generated release-update commits
+  after all configured gates pass.
 
 Ebuild policy:
 - Prefer immutable versioned source archives and local source builds. Do not use
@@ -31,12 +33,34 @@ Ebuild policy:
 - Do not alter the workstation's separate `/etc/portage/localrepo` or its
   auto-update providers as part of overlay maintenance.
 
+Automated-release policy:
+- A published upstream GitHub Release is the normal trigger for a new ebuild.
+  Ordinary version releases must not require a manual overlay bump.
+- Keep each package's release channel, minimum version, exact required checks,
+  and optional `blocked_tags` in `metadata/autobump/packages.toml`.
+- The updater may derive only version, commit, Rust minimum, and crates.io crate
+  locks from upstream. Packaging logic remains in reviewed local templates.
+- Reject draft or unsupported releases, unreachable tag commits, missing or
+  failed required checks, tag/source version mismatches, Git dependencies,
+  unsafe archives, template collisions, Manifest failures, and `pkgcheck`
+  findings before committing.
+- Automated commits may contain only the affected package directory and its
+  state file. Never remove older ebuilds or change packaging templates
+  automatically.
+- Keep the write token out of upstream discovery, Manifest, and QA subprocess
+  environments. Dependency tooling and GitHub Actions must remain version-pinned;
+  Python CI requirements must remain hash-locked.
+- On failure, retain the previously published ebuild and report one reusable
+  package-specific issue. To roll back a bad generated release, block its exact
+  tag first, then revert the generated commit.
+
 Workflow:
 1. Inspect Git status and package/release state before editing.
 2. Make the smallest source-grounded change.
-3. Run `pkgdev manifest` for affected packages and `pkgcheck scan` for QA.
-4. When practical, test fetch, compile, install staging, and package behavior in
+3. Run updater unit tests and language-specific linting for automation changes.
+4. Run `pkgdev manifest` for affected packages and `pkgcheck scan` for QA.
+5. When practical, test fetch, compile, install staging, and package behavior in
    isolation before considering a live merge.
-5. Stage exact completed paths and commit scoped units. Leave unrelated work
+6. Stage exact completed paths and commit scoped units. Leave unrelated work
    untouched.
-6. Report impact, validation, remaining release blockers, and rollback steps.
+7. Report impact, validation, remaining release blockers, and rollback steps.

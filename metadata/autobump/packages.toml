@@ -1,0 +1,55 @@
+schema = 1
+
+[[package]]
+atom = "mail-client/notm"
+repository = "kris004/notm"
+template = "metadata/autobump/templates/mail-client/notm.ebuild.in"
+kind = "cargo"
+rust_min_version = "1.92.0"
+include_prereleases = false
+minimum_version = "0.1.0"
+required_checks = [
+  "Format, lint, test, and GTK smoke",
+]
+
+[[package]]
+atom = "net-mail/mailwake"
+repository = "kris004/mailwake"
+template = "metadata/autobump/templates/net-mail/mailwake.ebuild.in"
+kind = "cargo"
+include_prereleases = true
+minimum_version = "0.1.0-beta.2"
+required_checks = [
+  "Format, lint, and test",
+  "Rust 1.95 compatibility",
+]
+
+[[package]]
+atom = "gui-apps/mural"
+repository = "kris004/mural"
+template = "metadata/autobump/templates/gui-apps/mural.ebuild.in"
+metadata_template = "metadata/autobump/templates/gui-apps/mural.metadata.xml"
+kind = "cargo"
+include_prereleases = false
+minimum_version = "0.1.0"
+required_checks = [
+  "Test (Rust stable)",
+  "Test (Rust 1.95.0)",
+  "Format, lint, docs, and packaging",
+  "RustSec advisory scan",
+]
+
+[[package]]
+atom = "sys-auth/pam-u2f-touch-popup"
+repository = "kris004/pam-u2f-touch-popup"
+template = "metadata/autobump/templates/sys-auth/pam-u2f-touch-popup.ebuild.in"
+metadata_template = "metadata/autobump/templates/sys-auth/pam-u2f-touch-popup.metadata.xml"
+kind = "generic"
+include_prereleases = false
+minimum_version = "0.1.1"
+required_checks = [
+  "Build and test (gcc)",
+  "Build and test (clang)",
+  "Sanitizers",
+  "Static release build",
+]

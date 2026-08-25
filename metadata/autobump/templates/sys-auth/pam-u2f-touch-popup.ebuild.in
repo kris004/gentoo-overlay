@@ -1,0 +1,54 @@
+# Copyright 2026 Kristopher Keller
+# Distributed under the terms of the GNU General Public License v2
+
+EAPI=8
+
+PYTHON_COMPAT=( python3_{11..14} )
+inherit python-any-r1 systemd toolchain-funcs
+
+DESCRIPTION="Desktop prompt while pam_u2f waits for a security-key touch"
+HOMEPAGE="https://github.com/kris004/pam-u2f-touch-popup"
+COMMIT="@COMMIT@"
+SRC_URI="https://github.com/kris004/pam-u2f-touch-popup/archive/${COMMIT}.tar.gz -> ${P}.tar.gz"
+S="${WORKDIR}/${PN}-${COMMIT}"
+
+LICENSE="GPL-3+"
+SLOT="0"
+KEYWORDS="~amd64"
+IUSE="test"
+RESTRICT="!test? ( test )"
+
+RDEPEND="
+	gnome-extra/zenity
+	sys-auth/pam_u2f
+"
+BDEPEND="test? ( ${PYTHON_DEPS} )"
+
+pkg_setup() {
+	use test && python-any-r1_pkg_setup
+}
+
+src_compile() {
+	tc-export CC
+	emake
+}
+
+src_test() {
+	emake PYTHON="${EPYTHON}" test
+}
+
+src_install() {
+	emake \
+		DESTDIR="${D}" \
+		PREFIX="${EPREFIX}/usr" \
+		BINDIR="${EPREFIX}/usr/libexec" \
+		UNITDIR="$(systemd_get_userunitdir)" \
+		install
+
+	dodoc README.md SECURITY.md
+}
+
+pkg_postinst() {
+	einfo "Enable the notifier with:"
+	einfo "  systemctl --user enable --now pam-u2f-touch-popup.service"
+}
