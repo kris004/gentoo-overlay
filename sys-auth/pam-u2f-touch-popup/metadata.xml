@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE pkgmetadata SYSTEM "https://www.gentoo.org/dtd/metadata.dtd">
+<pkgmetadata>
+  <maintainer type="person">
+    <email>30157929+kris004@users.noreply.github.com</email>
+    <name>Kristopher Keller</name>
+  </maintainer>
+  <longdescription lang="en">
+    pam-u2f-touch-popup watches pam_u2f's authentication-pending file and shows
+    a desktop prompt while the user is expected to touch a security key.
+  </longdescription>
+  <upstream>
+    <remote-id type="github">kris004/pam-u2f-touch-popup</remote-id>
+  </upstream>
+</pkgmetadata>
