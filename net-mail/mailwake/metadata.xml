@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE pkgmetadata SYSTEM "https://www.gentoo.org/dtd/metadata.dtd">
+<pkgmetadata>
+  <maintainer type="person">
+    <email>30157929+kris004@users.noreply.github.com</email>
+    <name>Kristopher Keller</name>
+  </maintainer>
+  <longdescription lang="en">
+    Mailwake is an event-driven Unix daemon that watches configured sources,
+    including files, IMAP mailboxes, Gmail, and system resume events, then runs
+    configured commands when those sources change.
+  </longdescription>
+  <upstream>
+    <remote-id type="github">kris004/mailwake</remote-id>
+  </upstream>
+</pkgmetadata>
