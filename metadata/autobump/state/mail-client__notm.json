@@ -1,8 +1,8 @@
 {
-  "commit": "dc56fdf2837f9d4f2546b0295e8defbd7552f636",
-  "gentoo_version": "0.1.0",
-  "published_at": "2026-08-21T03:42:01Z",
-  "release_id": 374157362,
+  "commit": "6827e6fdf864c6fd08e52e4c389b43d7eaf44cb3",
+  "gentoo_version": "0.1.1",
+  "published_at": "2026-08-25T03:22:02Z",
+  "release_id": 376124950,
   "schema": 1,
-  "tag": "v0.1.0"
+  "tag": "v0.1.1"
 }
