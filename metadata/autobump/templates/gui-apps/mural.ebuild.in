@@ -42,7 +42,7 @@ src_compile() {
 }
 
 src_test() {
-	cargo_src_test --locked --workspace --all-targets
+	TMPDIR="/tmp" cargo_src_test --locked --workspace --all-targets
 }
 
 src_install() {
