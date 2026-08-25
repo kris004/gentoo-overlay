@@ -257,7 +257,12 @@ src_compile() {
 }
 
 src_test() {
-	TMPDIR="/tmp" cargo_src_test --locked
+	local test_tmpdir="${TMPDIR:-${T}}"
+	local test_tmpdir_fd
+
+	exec {test_tmpdir_fd}<"${test_tmpdir}" || die "failed to open test temporary directory"
+	TMPDIR="/proc/self/fd/${test_tmpdir_fd}" cargo_src_test --locked
+	exec {test_tmpdir_fd}<&- || die "failed to close test temporary directory"
 }
 
 src_install() {
