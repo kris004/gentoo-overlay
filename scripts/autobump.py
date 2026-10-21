@@ -120,6 +120,7 @@ class PackageConfig:
     blocked_tags: frozenset[str] = frozenset()
     metadata_template: Path | None = None
     rust_min_version: str | None = None
+    version_file: str | None = None
 
     @property
     def category(self) -> str:
@@ -653,6 +654,16 @@ def load_config(root: Path, config_path: Path) -> list[PackageConfig]:
         template = _repo_path(root, str(row["template"]))
         metadata_value = row.get("metadata_template")
         metadata = _repo_path(root, str(metadata_value)) if metadata_value else None
+        version_file = row.get("version_file")
+        if version_file is not None:
+            if (
+                kind != "generic"
+                or not isinstance(version_file, str)
+                or not version_file
+                or Path(version_file).is_absolute()
+                or ".." in Path(version_file).parts
+            ):
+                raise AutobumpError(f"invalid generic version_file for {atom}")
         package = PackageConfig(
             atom=atom,
             repository=repository,
@@ -664,6 +675,7 @@ def load_config(root: Path, config_path: Path) -> list[PackageConfig]:
             trusted_openpgp_fingerprints=frozenset(fingerprints),
             blocked_tags=frozenset(str(x) for x in row.get("blocked_tags", [])),
             metadata_template=metadata,
+            version_file=version_file,
             rust_min_version=(
                 str(row["rust_min_version"]) if row.get("rust_min_version") else None
             ),
@@ -801,6 +813,18 @@ def render_template(
     if text.count("@COMMIT@") != 1:
         raise AutobumpError(f"{package.template} must contain exactly one @COMMIT@")
     replacements = {"@COMMIT@": commit}
+    if package.version_file is not None:
+        version_path = _repo_path(source, package.version_file)
+        try:
+            if version_path.stat().st_size > 128:
+                raise AutobumpError("configured source version file is too large")
+            source_version = version_path.read_text(encoding="utf-8").strip()
+        except (OSError, UnicodeError) as exc:
+            raise AutobumpError("cannot read configured source version file") from exc
+        if source_version != release.version.upstream:
+            raise AutobumpError(
+                f"tag {release.tag} does not match source version {source_version!r}"
+            )
     if package.kind == "cargo":
         cargo_version, rust_version = _cargo_package_values(
             source, package.rust_min_version

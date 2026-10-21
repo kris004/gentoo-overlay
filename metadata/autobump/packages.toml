@@ -66,3 +66,19 @@ required_checks = [
   "Sanitizers",
   "Static release build",
 ]
+
+[[package]]
+atom = "gui-apps/destructive-confirm"
+repository = "kris004/destructive-confirm"
+trusted_openpgp_fingerprints = [
+  "BE592562E6131A53F4BADE4A046928E9A919BAF9",
+]
+template = "metadata/autobump/templates/gui-apps/destructive-confirm.ebuild.in"
+metadata_template = "metadata/autobump/templates/gui-apps/destructive-confirm.metadata.xml"
+kind = "generic"
+version_file = "VERSION"
+include_prereleases = false
+minimum_version = "0.1.0"
+required_checks = [
+  "Build, presets, and native dialogs",
+]
