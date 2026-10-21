@@ -14,6 +14,7 @@ packages locally from source archives pinned to immutable release commits.
 | `net-mail/mailwake` | GitHub releases, including prereleases | `~amd64` |
 | `gui-apps/mural` | Stable releases starting with `v0.1.0` | `~amd64` |
 | `sys-auth/pam-u2f-touch-popup` | Stable releases starting with `v0.1.1` | `~amd64` |
+| `gui-apps/destructive-confirm` | Stable releases starting with `v0.1.0` | `~amd64` |
 
 A package directory appears when its first eligible release is published.
 
@@ -69,7 +70,9 @@ The registry and ebuild templates live under `metadata/autobump/`. Ordinary
 source and version releases are automatic. A real change to a project's system
 dependencies, install paths, service files, or other packaging contract still
 requires the corresponding reviewed template change rather than guessing from
-source code. A signing-key rotation likewise requires a reviewed registry edit;
+source code. Generic projects can declare a relative `version_file` in the
+registry; its plain source version must match the release tag before an ebuild
+is rendered. A signing-key rotation likewise requires a reviewed registry edit;
 the old and new full fingerprints can overlap during an intentional transition.
 
 To suppress a bad release, add its exact tag to that package's `blocked_tags`

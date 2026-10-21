@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE pkgmetadata SYSTEM "https://www.gentoo.org/dtd/metadata.dtd">
+<pkgmetadata>
+  <maintainer type="person">
+    <email>30157929+kris004@users.noreply.github.com</email>
+    <name>Kristopher Keller</name>
+  </maintainer>
+  <longdescription lang="en">
+    A script-friendly GTK 4 and libadwaita confirmation dialog. Native
+    destructive-response buttons can use one of four compile-time fire
+    animation presets, or a plain static style. Only selected artwork is
+    embedded; Blender is not required to build or run the application.
+  </longdescription>
+  <use>
+    <flag name="animation-fire-ring">Embed the original small fire-ring animation</flag>
+    <flag name="animation-real-fire">Embed the fluid-simulated rising-fire animation</flag>
+    <flag name="animation-svg">Embed the original in-button SVG flame animation</flag>
+    <flag name="animation-tall-ring">Embed the tall curling fire-ring animation</flag>
+  </use>
+  <upstream>
+    <remote-id type="github">kris004/destructive-confirm</remote-id>
+  </upstream>
+</pkgmetadata>

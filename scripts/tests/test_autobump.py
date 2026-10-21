@@ -230,6 +230,40 @@ class ConfigTests(unittest.TestCase):
                 load_config(root, config)
 
 
+    def test_generic_version_file_must_be_safe(self) -> None:
+        with tempfile.TemporaryDirectory() as value:
+            root = Path(value)
+            (root / "template").write_text("@COMMIT@\n", encoding="utf-8")
+            config = root / "packages.toml"
+            base = textwrap.dedent(
+                f"""
+                schema = 2
+                [[package]]
+                atom = "app-misc/test"
+                repository = "owner/project"
+                trusted_openpgp_fingerprints = ["{FINGERPRINT}"]
+                template = "template"
+                kind = "generic"
+                include_prereleases = false
+                minimum_version = "1.0.0"
+                required_checks = ["CI"]
+                """
+            )
+            config.write_text(base + 'version_file = "VERSION"\n', encoding="utf-8")
+            self.assertEqual(load_config(root, config)[0].version_file, "VERSION")
+            for option in ('""', '"../VERSION"', '"/VERSION"', '42', 'false'):
+                with self.subTest(option=option):
+                    config.write_text(base + f"version_file = {option}\n", encoding="utf-8")
+                    with self.assertRaisesRegex(AutobumpError, "invalid generic"):
+                        load_config(root, config)
+            config.write_text(
+                base.replace('kind = "generic"', 'kind = "cargo"')
+                + 'version_file = "VERSION"\n', encoding="utf-8",
+            )
+            with self.assertRaisesRegex(AutobumpError, "invalid generic"):
+                load_config(root, config)
+
+
 class CargoTests(unittest.TestCase):
     def test_registry_crates_are_rendered_and_deduplicated(self) -> None:
         with tempfile.TemporaryDirectory() as value:
@@ -441,6 +475,55 @@ class CargoTests(unittest.TestCase):
             )
             with self.assertRaisesRegex(AutobumpError, "does not match Cargo version"):
                 render_template(package, root, release, "a" * 40)
+
+
+class GenericVersionTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self.source = self.root / "source"
+        self.source.mkdir()
+        self.template = self.root / "test.ebuild.in"
+        self.template.write_text('COMMIT="@COMMIT@"\n', encoding="utf-8")
+        self.package = PackageConfig(
+            atom="gui-apps/test", repository="owner/test", template=self.template,
+            kind="generic", include_prereleases=False, required_checks=("CI",),
+            minimum_version=SemVer.parse("0.0.0"), version_file="VERSION",
+        )
+        self.release = Release(
+            1, "v1.2.3", "2026-01-01T00:00:00Z", False, SemVer.parse("v1.2.3")
+        )
+
+    def test_configured_source_version_must_match(self) -> None:
+        path = self.source / "VERSION"
+        path.write_text("1.2.3\n", encoding="utf-8")
+        result = render_template(self.package, self.source, self.release, COMMIT)
+        self.assertIn(COMMIT, result)
+        for value in (b"1.2.4\n", b"1" * 129, b"\xff"):
+            with self.subTest(value=value), self.assertRaises(AutobumpError):
+                path.write_bytes(value)
+                render_template(self.package, self.source, self.release, COMMIT)
+        path.unlink()
+        with self.assertRaises(AutobumpError):
+            render_template(self.package, self.source, self.release, COMMIT)
+        # Existing generic packages without a version_file remain compatible.
+        result = render_template(
+            dataclasses.replace(self.package, version_file=None),
+            self.source, self.release, COMMIT,
+        )
+        self.assertIn(COMMIT, result)
+
+    def test_version_file_cannot_escape_source(self) -> None:
+        outside = self.root / "outside"
+        outside.write_text("1.2.3\n", encoding="utf-8")
+        for name in ("../outside", str(outside)):
+            with self.subTest(path=name), self.assertRaises(AutobumpError):
+                render_template(dataclasses.replace(self.package, version_file=name),
+                                self.source, self.release, COMMIT)
+        (self.source / "VERSION").symlink_to(outside)
+        with self.assertRaises(AutobumpError):
+            render_template(self.package, self.source, self.release, COMMIT)
 
 
 class ReleaseSelectionTests(unittest.TestCase):
